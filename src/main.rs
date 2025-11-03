@@ -59,6 +59,16 @@ struct LogMessage {
     message: String,
 }
 
+#[derive(Debug, Clone)]
+struct ReceivedMessage {
+    pub from: u32,
+    pub length: u32,
+    pub message: String,
+    pub rssi: i32,
+    pub snr: i32,
+    pub time: DateTime<Local>,
+}
+
 struct DataBuffer {
     data: VecDeque<TelemetryData>,
     logs: VecDeque<LogMessage>,
@@ -192,50 +202,76 @@ impl MyEguiApp {
         }
         let port_path = self.port_path.clone();
         let data_buffer = Arc::clone(&self.data_buffer);
-
         thread::spawn(move || {
-            if let Ok(mut port) = serialport::new(&port_path, 115_200)
-                .timeout(Duration::from_millis(100))
-                .open()
-            {
-                // Initialize LoRa receiver module FIRST
-                println!("Initializing LoRa receiver module...");
-                if !Self::init_lora_receiver(&mut port) {
-                    eprintln!("Failed to initialize LoRa receiver module!");
-                    return;
-                }
-                println!("LoRa receiver initialized successfully");
-
-                let mut buffer = String::new();
-                let mut serial_buf = vec![0u8; 256];
-
-                loop {
-                    match port.read(&mut serial_buf) {
-                        Ok(n) => {
-                            if let Ok(s) = std::str::from_utf8(&serial_buf[..n]) {
-                                buffer.push_str(s);
-                                while let Some(pos) = buffer.find('\n') {
-                                    let line = buffer.drain(..=pos).collect::<String>();
-                                    let trimmed = line.trim();
-                                    if let Ok(mut buf) = data_buffer.lock() {
-                                        if let Some(telem) = parse_telemetry(trimmed) {
-                                            buf.push(telem);
-                                        } else if let Some(log_msg) = parse_log(trimmed) {
-                                            buf.push_log(log_msg);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
-                        Err(_) => {
-                            thread::sleep(Duration::from_millis(100));
-                        }
-                    }
-                }
-            }
+            Self::uart_loop(port_path, data_buffer);
         });
         self.serial_connected = true;
+    }
+
+    fn uart_loop(port_path: String, data_buffer: Arc<Mutex<DataBuffer>>) {
+        let mut port = match serialport::new(&port_path, 115_200)
+            .timeout(Duration::from_millis(100))
+            .open()
+        {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+
+        println!("Initializing LoRa receiver module...");
+        if !Self::init_lora_receiver(&mut port) {
+            eprintln!("Failed to initialize LoRa receiver module!");
+            return;
+        }
+        println!("LoRa receiver initialized successfully");
+
+        let mut buffer = String::new();
+        let mut serial_buf = vec![0u8; 256];
+
+        loop {
+            Self::handle_serial_read(&mut port, &mut buffer, &mut serial_buf, &data_buffer);
+        }
+    }
+
+    fn handle_serial_read(
+        port: &mut Box<dyn SerialPort>,
+        buffer: &mut String,
+        serial_buf: &mut [u8],
+        data_buffer: &Arc<Mutex<DataBuffer>>,
+    ) {
+        match port.read(serial_buf) {
+            Ok(n) => Self::process_bytes(buffer, &serial_buf[..n], data_buffer),
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(_) => thread::sleep(Duration::from_millis(100)),
+        }
+    }
+
+    fn process_bytes(buffer: &mut String, bytes: &[u8], data_buffer: &Arc<Mutex<DataBuffer>>) {
+        let Ok(s) = std::str::from_utf8(bytes) else {
+            return;
+        };
+        buffer.push_str(s);
+
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer.drain(..=pos).collect::<String>();
+            Self::process_line(line.trim(), data_buffer);
+        }
+    }
+
+    fn process_line(line: &str, data_buffer: &Arc<Mutex<DataBuffer>>) {
+        let Some(rcv) = parse_rcv(line) else {
+            eprintln!("Failed to parse RCV: {line}");
+            return;
+        };
+
+        let Ok(mut buf) = data_buffer.lock() else {
+            return;
+        };
+
+        if let Some(telem) = parse_telemetry(&rcv.message) {
+            buf.push(telem);
+        } else if let Some(log_msg) = parse_log(&rcv.message) {
+            buf.push_log(log_msg);
+        }
     }
 
     fn init_lora_receiver(port: &mut Box<dyn SerialPort>) -> bool {
@@ -249,11 +285,11 @@ impl MyEguiApp {
         ];
 
         for (cmd, delay_ms) in commands {
-            println!("Sending: {}", cmd);
+            println!("Sending: {cmd}");
 
             // Send command
             if let Err(e) = port.write_all(format!("{}\r\n", cmd).as_bytes()) {
-                eprintln!("Failed to send command '{}': {}", cmd, e);
+                eprintln!("Failed to send command '{cmd}': {e}");
                 return false;
             }
 
@@ -266,12 +302,11 @@ impl MyEguiApp {
                 Ok(n) if n > 0 => {
                     if let Ok(resp) = std::str::from_utf8(&response[..n]) {
                         let resp = resp.trim();
-                        println!("Response: {}", resp);
+                        println!("Response: {resp}");
 
                         // Check for OK or +OK response
                         if !resp.contains("OK") && !resp.is_empty() {
                             eprintln!("Warning: Unexpected response for '{}': {}", cmd, resp);
-                            // Don't fail immediately - some modules respond differently
                         }
                     }
                 }
@@ -294,6 +329,25 @@ impl MyEguiApp {
         println!("LoRa receiver configuration complete");
         true
     }
+}
+
+fn parse_rcv(line: &str) -> Option<ReceivedMessage> {
+    let parts: Vec<&str> = line.strip_prefix("+RCV=")?.split(",").collect();
+
+    let address: u32 = parts[0].parse().ok()?;
+    let length: u32 = parts[1].parse().ok()?;
+    let message = parts[2].to_string();
+    let rssi: i32 = parts[3].parse().ok()?;
+    let snr: i32 = parts[4].parse().ok()?;
+
+    Some(ReceivedMessage {
+        from: address,
+        length,
+        message,
+        rssi,
+        snr,
+        time: Local::now(),
+    })
 }
 
 // Parse telemetry from serial data
