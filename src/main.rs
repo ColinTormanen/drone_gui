@@ -1,12 +1,11 @@
 use chrono::{DateTime, Local};
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot, PlotPoints};
+use serialport::SerialPort;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-
-mod app;
 
 const MAX_POINTS: usize = 500;
 const MAX_LOG_MESSAGES: usize = 100;
@@ -191,7 +190,6 @@ impl MyEguiApp {
         if self.serial_connected {
             return;
         }
-
         let port_path = self.port_path.clone();
         let data_buffer = Arc::clone(&self.data_buffer);
 
@@ -200,6 +198,14 @@ impl MyEguiApp {
                 .timeout(Duration::from_millis(100))
                 .open()
             {
+                // Initialize LoRa receiver module FIRST
+                println!("Initializing LoRa receiver module...");
+                if !Self::init_lora_receiver(&mut port) {
+                    eprintln!("Failed to initialize LoRa receiver module!");
+                    return;
+                }
+                println!("LoRa receiver initialized successfully");
+
                 let mut buffer = String::new();
                 let mut serial_buf = vec![0u8; 256];
 
@@ -208,11 +214,9 @@ impl MyEguiApp {
                         Ok(n) => {
                             if let Ok(s) = std::str::from_utf8(&serial_buf[..n]) {
                                 buffer.push_str(s);
-
                                 while let Some(pos) = buffer.find('\n') {
                                     let line = buffer.drain(..=pos).collect::<String>();
                                     let trimmed = line.trim();
-
                                     if let Ok(mut buf) = data_buffer.lock() {
                                         if let Some(telem) = parse_telemetry(trimmed) {
                                             buf.push(telem);
@@ -231,8 +235,64 @@ impl MyEguiApp {
                 }
             }
         });
-
         self.serial_connected = true;
+    }
+
+    fn init_lora_receiver(port: &mut Box<dyn SerialPort>) -> bool {
+        // These parameters MUST match your STM32 transmitter's settings
+        let commands = vec![
+            ("AT", 200),
+            ("AT+ADDRESS=1", 200),          // Receiver address
+            ("AT+NETWORKID=5", 200),        // MUST match LORA_NETWORK_ID from STM32
+            ("AT+BAND=915000000", 200),     // MUST match LORA_BAND from STM32
+            ("AT+PARAMETER=12,7,1,4", 200), // MUST match SF, BW, CR, Preamble from STM32
+        ];
+
+        for (cmd, delay_ms) in commands {
+            println!("Sending: {}", cmd);
+
+            // Send command
+            if let Err(e) = port.write_all(format!("{}\r\n", cmd).as_bytes()) {
+                eprintln!("Failed to send command '{}': {}", cmd, e);
+                return false;
+            }
+
+            // Wait for module to process
+            thread::sleep(Duration::from_millis(delay_ms));
+
+            // Read response
+            let mut response = vec![0u8; 256];
+            match port.read(&mut response) {
+                Ok(n) if n > 0 => {
+                    if let Ok(resp) = std::str::from_utf8(&response[..n]) {
+                        let resp = resp.trim();
+                        println!("Response: {}", resp);
+
+                        // Check for OK or +OK response
+                        if !resp.contains("OK") && !resp.is_empty() {
+                            eprintln!("Warning: Unexpected response for '{}': {}", cmd, resp);
+                            // Don't fail immediately - some modules respond differently
+                        }
+                    }
+                }
+                Ok(_) => {
+                    println!("No response for '{}'", cmd);
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                    println!("Timeout waiting for response to '{}'", cmd);
+                }
+                Err(e) => {
+                    eprintln!("Error reading response for '{}': {}", cmd, e);
+                    return false;
+                }
+            }
+
+            // Small delay between commands
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        println!("LoRa receiver configuration complete");
+        true
     }
 }
 
