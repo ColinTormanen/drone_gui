@@ -1,9 +1,9 @@
 use eframe::egui;
 use egui_plot::{Legend, Line, Plot};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
 use crate::telemetry::{DataBuffer, PidAxis};
-use crate::uart;
+use crate::uart::{self, UartCommand};
 
 pub struct MyEguiApp {
     pub data_buffer: Arc<Mutex<DataBuffer>>,
@@ -11,6 +11,9 @@ pub struct MyEguiApp {
     port_path: String,
     selected_pid_axis: PidAxis,
     auto_scroll_logs: bool,
+    uart_sender: Option<mpsc::Sender<UartCommand>>,
+    send_address: String,
+    send_data: String,
 }
 
 impl Default for MyEguiApp {
@@ -21,6 +24,9 @@ impl Default for MyEguiApp {
             port_path: "/dev/ttyAMA1".to_string(),
             selected_pid_axis: PidAxis::Roll,
             auto_scroll_logs: true,
+            uart_sender: None,
+            send_address: "0".to_string(),
+            send_data: String::new(),
         }
     }
 }
@@ -36,8 +42,25 @@ impl MyEguiApp {
         }
         let port_path = self.port_path.clone();
         let data_buffer = Arc::clone(&self.data_buffer);
-        uart::start_uart_thread(port_path, data_buffer);
+        let sender = uart::start_uart_thread(port_path, data_buffer);
+        self.uart_sender = Some(sender);
         self.serial_connected = true;
+    }
+
+    fn send_data(&self) {
+        if let Some(sender) = &self.uart_sender {
+            if let Ok(address) = self.send_address.parse::<u16>() {
+                let cmd = UartCommand::Send {
+                    address,
+                    data: self.send_data.clone(),
+                };
+                if let Err(e) = sender.send(cmd) {
+                    eprintln!("Failed to send command: {}", e);
+                }
+            } else {
+                eprintln!("Invalid address: {}", self.send_address);
+            }
+        }
     }
 }
 
@@ -79,6 +102,30 @@ impl eframe::App for MyEguiApp {
                 ui.separator();
 
                 ui.checkbox(&mut self.auto_scroll_logs, "Auto-scroll logs");
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Send Data:");
+                ui.label("Address:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.send_address)
+                        .desired_width(60.0)
+                        .hint_text("0-65535"),
+                );
+                ui.label("Data:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.send_data)
+                        .desired_width(200.0)
+                        .hint_text("Max 240 bytes"),
+                );
+                if ui
+                    .button("Send")
+                    .on_hover_text("Send data via AT+SEND command")
+                    .clicked()
+                    && self.serial_connected
+                {
+                    self.send_data();
+                }
             });
         });
 

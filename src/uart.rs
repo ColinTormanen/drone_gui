@@ -1,5 +1,5 @@
 use serialport::SerialPort;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -7,13 +7,26 @@ use crate::config::*;
 use crate::parser::{parse_log, parse_rcv, parse_telemetry};
 use crate::telemetry::DataBuffer;
 
-pub fn start_uart_thread(port_path: String, data_buffer: Arc<Mutex<DataBuffer>>) {
-    thread::spawn(move || {
-        uart_loop(port_path, data_buffer);
-    });
+pub enum UartCommand {
+    Send { address: u16, data: String },
 }
 
-fn uart_loop(port_path: String, data_buffer: Arc<Mutex<DataBuffer>>) {
+pub fn start_uart_thread(
+    port_path: String,
+    data_buffer: Arc<Mutex<DataBuffer>>,
+) -> mpsc::Sender<UartCommand> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        uart_loop(port_path, data_buffer, rx);
+    });
+    tx
+}
+
+fn uart_loop(
+    port_path: String,
+    data_buffer: Arc<Mutex<DataBuffer>>,
+    rx: mpsc::Receiver<UartCommand>,
+) {
     let mut port = match serialport::new(&port_path, BAUD_RATE)
         .timeout(Duration::from_millis(SERIAL_TIMEOUT_MS))
         .open()
@@ -33,7 +46,46 @@ fn uart_loop(port_path: String, data_buffer: Arc<Mutex<DataBuffer>>) {
     let mut serial_buf = vec![0u8; 256];
 
     loop {
+        // Check for outgoing commands (non-blocking)
+        if let Ok(cmd) = rx.try_recv() {
+            handle_uart_command(&mut port, cmd);
+        }
+
+        // Handle incoming serial data
         handle_serial_read(&mut port, &mut buffer, &mut serial_buf, &data_buffer);
+    }
+}
+
+fn handle_uart_command(port: &mut Box<dyn SerialPort>, cmd: UartCommand) {
+    match cmd {
+        UartCommand::Send { address, data } => {
+            send_lora_data(port, address, &data);
+        }
+    }
+}
+
+fn send_lora_data(port: &mut Box<dyn SerialPort>, address: u16, data: &str) {
+    let payload_length = data.len();
+
+    // Check maximum payload length
+    if payload_length > 240 {
+        eprintln!("Payload length {} exceeds maximum of 240 bytes", payload_length);
+        return;
+    }
+
+    let cmd = format!("AT+SEND={},{},{}", address, payload_length, data);
+    println!("Sending: {}", cmd);
+
+    if let Err(e) = port.write_all(format!("{}\r\n", cmd).as_bytes()) {
+        eprintln!("Failed to send data: {}", e);
+        return;
+    }
+
+    // Wait for +OK response
+    if wait_for_response(port, "+OK") {
+        println!("✓ Received +OK - Data sent successfully to address {}: '{}'", address, data);
+    } else {
+        eprintln!("Failed to send data to address {}", address);
     }
 }
 
