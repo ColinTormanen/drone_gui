@@ -1,10 +1,11 @@
-use eframe::egui::{self, Event};
+use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
 use egui_plot::{Legend, Line, Plot};
 use gilrs::Gilrs;
 use std::sync::{Arc, Mutex, mpsc};
 
 use crate::telemetry::{DataBuffer, PidAxis};
 use crate::uart::{self, UartCommand};
+use crate::video::{self, SharedVideoFrame};
 
 pub struct MyEguiApp {
     pub data_buffer: Arc<Mutex<DataBuffer>>,
@@ -16,6 +17,10 @@ pub struct MyEguiApp {
     send_address: String,
     send_data: String,
     gilrs: gilrs::Gilrs,
+    video_frame: SharedVideoFrame,
+    video_texture: Option<TextureHandle>,
+    video_connected: bool,
+    video_device_path: String,
 }
 
 impl Default for MyEguiApp {
@@ -30,6 +35,10 @@ impl Default for MyEguiApp {
             send_address: "0".to_string(),
             send_data: String::new(),
             gilrs: Gilrs::new().unwrap(),
+            video_frame: Arc::new(Mutex::new(None)),
+            video_texture: None,
+            video_connected: false,
+            video_device_path: "/dev/video2".to_string(),
         }
     }
 }
@@ -65,6 +74,23 @@ impl MyEguiApp {
             }
         }
     }
+
+    fn start_video_thread(&mut self) {
+        if self.video_connected {
+            return;
+        }
+        let device_path = self.video_device_path.clone();
+        match video::start_video_thread(&device_path) {
+            Ok(frame_buffer) => {
+                self.video_frame = frame_buffer;
+                self.video_connected = true;
+                println!("Video capture started from {}", device_path);
+            }
+            Err(e) => {
+                eprintln!("Failed to start video capture: {}", e);
+            }
+        }
+    }
 }
 
 impl eframe::App for MyEguiApp {
@@ -74,6 +100,20 @@ impl eframe::App for MyEguiApp {
         }) = self.gilrs.next_event()
         {
             println!("{:?} New event from {}: {:?}", time, id, event);
+        }
+
+        // Update video texture if new frame is available
+        if let Ok(frame_opt) = self.video_frame.lock()
+            && let Some(frame) = frame_opt.as_ref()
+        {
+            let color_image = ColorImage::from_rgb([frame.width, frame.height], &frame.data);
+
+            if let Some(texture) = &mut self.video_texture {
+                texture.set(color_image, TextureOptions::LINEAR);
+            } else {
+                self.video_texture =
+                    Some(ctx.load_texture("video_feed", color_image, TextureOptions::LINEAR));
+            }
         }
 
         ctx.request_repaint();
@@ -93,6 +133,23 @@ impl eframe::App for MyEguiApp {
                     && !self.serial_connected
                 {
                     self.start_uart_thread();
+                }
+
+                ui.separator();
+
+                ui.label("Video Device:");
+                ui.text_edit_singleline(&mut self.video_device_path);
+
+                if ui
+                    .button(if self.video_connected {
+                        "Video Connected"
+                    } else {
+                        "Connect Video"
+                    })
+                    .clicked()
+                    && !self.video_connected
+                {
+                    self.start_video_thread();
                 }
 
                 ui.separator();
@@ -143,6 +200,37 @@ impl eframe::App for MyEguiApp {
             ui.heading("Drone Telemetry Monitor");
 
             let buffer = self.data_buffer.lock().unwrap();
+
+            ui.horizontal(|ui| {
+                // Video Feed Display
+                if let Some(texture) = &self.video_texture {
+                    ui.group(|ui| {
+                        ui.label("Video Feed");
+                        ui.image(texture);
+                    });
+                }
+
+                // Log Section
+                ui.group(|ui| {
+                    ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
+
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .auto_shrink([false; 2])
+                        .stick_to_bottom(self.auto_scroll_logs)
+                        .show(ui, |ui| {
+                            for log in buffer.logs.iter() {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!(
+                                        "[{}]",
+                                        log.clock_time.format("%H:%M:%S%.3f")
+                                    ));
+                                    ui.label(&log.message);
+                                });
+                            }
+                        });
+                });
+            });
 
             // Attitude Plot
             ui.group(|ui| {
@@ -255,24 +343,6 @@ impl eframe::App for MyEguiApp {
             }
 
             ui.add_space(10.0);
-
-            // Log Section
-            ui.group(|ui| {
-                ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
-
-                egui::ScrollArea::vertical()
-                    .max_height(200.0)
-                    .auto_shrink([false; 2])
-                    .stick_to_bottom(self.auto_scroll_logs)
-                    .show(ui, |ui| {
-                        for log in buffer.logs.iter() {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("[{}]", log.clock_time.format("%H:%M:%S%.3f")));
-                                ui.label(&log.message);
-                            });
-                        }
-                    });
-            });
         });
     }
 }

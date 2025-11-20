@@ -3,6 +3,7 @@ mod config;
 mod parser;
 mod telemetry;
 mod uart;
+mod video;
 
 use app::MyEguiApp;
 
