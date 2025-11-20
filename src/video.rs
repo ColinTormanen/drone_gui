@@ -1,4 +1,4 @@
-use ffmpeg_next as ffmpeg;
+use ffmpeg_the_third as ffmpeg;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -99,8 +99,9 @@ fn video_capture_loop(
 
     // Process packets
     let mut frame_count = 0;
-    for (stream, packet) in ictx.packets() {
-        if stream.index() == stream_index {
+    for result in ictx.packets() {
+        if let Ok((stream, packet)) = result {
+            if stream.index() == stream_index {
             // Try to send packet, but skip if it fails (corrupted data)
             if let Err(e) = decoder.send_packet(&packet) {
                 eprintln!(
@@ -132,6 +133,7 @@ fn video_capture_loop(
 
                 frame_count += 1;
             }
+        }
         }
     }
 
