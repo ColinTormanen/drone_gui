@@ -210,25 +210,27 @@ impl eframe::App for MyEguiApp {
                     });
                 }
 
-                // Log Section
-                ui.group(|ui| {
-                    ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
+                ui.vertical(|ui| {
+                    // Log Section
+                    ui.group(|ui| {
+                        ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
 
-                    egui::ScrollArea::vertical()
-                        .max_height(200.0)
-                        .auto_shrink([false; 2])
-                        .stick_to_bottom(self.auto_scroll_logs)
-                        .show(ui, |ui| {
-                            for log in buffer.logs.iter() {
-                                ui.horizontal(|ui| {
-                                    ui.label(format!(
-                                        "[{}]",
-                                        log.clock_time.format("%H:%M:%S%.3f")
-                                    ));
-                                    ui.label(&log.message);
-                                });
-                            }
-                        });
+                        egui::ScrollArea::vertical()
+                            .max_height(200.0)
+                            .auto_shrink([false; 2])
+                            .stick_to_bottom(self.auto_scroll_logs)
+                            .show(ui, |ui| {
+                                for log in buffer.logs.iter() {
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!(
+                                            "[{}]",
+                                            log.clock_time.format("%H:%M:%S%.3f")
+                                        ));
+                                        ui.label(&log.message);
+                                    });
+                                }
+                            });
+                    });
                 });
             });
 

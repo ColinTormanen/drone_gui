@@ -2,10 +2,10 @@
 pub const LORA_ADDRESS: u32 = 1;
 pub const LORA_NETWORK_ID: u32 = 6;
 pub const LORA_BAND: u32 = 915_000_000;
-pub const LORA_SPREADING_FACTOR: u32 = 9;
-pub const LORA_BANDWIDTH: u32 = 7;
+pub const LORA_SPREADING_FACTOR: u32 = 7;
+pub const LORA_BANDWIDTH: u32 = 9;
 pub const LORA_CODING_RATE: u32 = 1;
-pub const LORA_PREAMBLE: u32 = 4;
+pub const LORA_PREAMBLE: u32 = 12;
 
 // Serial port configuration
 pub const BAUD_RATE: u32 = 115_200;
