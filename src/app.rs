@@ -1,29 +1,40 @@
-use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
 use egui_plot::{Legend, Line, Plot};
 use gilrs::Gilrs;
 use std::sync::{Arc, Mutex, mpsc};
 
+// Use egui's Color32 from bevy_egui to avoid version conflicts
+use egui::Color32;
+
+use crate::drone_scene::{Drone, DroneOrientation};
 use crate::telemetry::{DataBuffer, PidAxis};
 use crate::uart::{self, UartCommand};
 use crate::video::{self, SharedVideoFrame};
 
-pub struct MyEguiApp {
+#[derive(Resource, Clone)]
+pub struct AppState {
     pub data_buffer: Arc<Mutex<DataBuffer>>,
-    serial_connected: bool,
-    port_path: String,
-    selected_pid_axis: PidAxis,
-    auto_scroll_logs: bool,
-    uart_sender: Option<mpsc::Sender<UartCommand>>,
-    send_address: String,
-    send_data: String,
-    gilrs: gilrs::Gilrs,
-    video_frame: SharedVideoFrame,
-    video_texture: Option<TextureHandle>,
-    video_connected: bool,
-    video_device_path: String,
+    pub serial_connected: bool,
+    pub port_path: String,
+    pub selected_pid_axis: PidAxis,
+    pub auto_scroll_logs: bool,
+    pub uart_sender: Option<mpsc::Sender<UartCommand>>,
+    pub send_address: String,
+    pub send_data: String,
+    pub video_frame: SharedVideoFrame,
+    pub video_texture: Option<egui::TextureHandle>,
+    pub video_connected: bool,
+    pub video_device_path: String,
 }
 
-impl Default for MyEguiApp {
+// Gilrs is not Sync, so we keep it as a NonSend resource
+// NonSend resources can only be accessed from the main thread
+pub struct GamepadState {
+    pub gilrs: gilrs::Gilrs,
+}
+
+impl Default for AppState {
     fn default() -> Self {
         Self {
             data_buffer: Arc::new(Mutex::new(DataBuffer::new())),
@@ -34,7 +45,6 @@ impl Default for MyEguiApp {
             uart_sender: None,
             send_address: "0".to_string(),
             send_data: String::new(),
-            gilrs: Gilrs::new().unwrap(),
             video_frame: Arc::new(Mutex::new(None)),
             video_texture: None,
             video_connected: false,
@@ -43,11 +53,15 @@ impl Default for MyEguiApp {
     }
 }
 
-impl MyEguiApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+impl Default for GamepadState {
+    fn default() -> Self {
+        Self {
+            gilrs: Gilrs::new().unwrap(),
+        }
     }
+}
 
+impl AppState {
     fn start_uart_thread(&mut self) {
         if self.serial_connected {
             return;
@@ -93,258 +107,247 @@ impl MyEguiApp {
     }
 }
 
-impl eframe::App for MyEguiApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+/// Main UI system that renders all the egui panels
+pub fn ui_system(
+    mut contexts: EguiContexts,
+    mut state: ResMut<AppState>,
+    gamepad: Option<NonSendMut<GamepadState>>,
+    mut drone_query: Query<&mut DroneOrientation, With<Drone>>,
+) {
+    // Handle gamepad events
+    if let Some(mut gamepad) = gamepad {
         while let Some(gilrs::Event {
             id, event, time, ..
-        }) = self.gilrs.next_event()
+        }) = gamepad.gilrs.next_event()
         {
             println!("{:?} New event from {}: {:?}", time, id, event);
         }
+    }
 
-        // Update video texture if new frame is available
-        if let Ok(frame_opt) = self.video_frame.lock()
-            && let Some(frame) = frame_opt.as_ref()
-        {
-            let color_image = ColorImage::from_rgb([frame.width, frame.height], &frame.data);
+    // Update video texture if new frame is available
+    let frame_data_opt = state
+        .video_frame
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+    if let Some(frame_data) = frame_data_opt {
+        let ctx = contexts.ctx_mut();
+        let texture = state.video_texture.get_or_insert_with(|| {
+            ctx.load_texture(
+                "video_frame",
+                egui::ColorImage::from_rgb([frame_data.width, frame_data.height], &frame_data.data),
+                egui::TextureOptions::default(),
+            )
+        });
+        texture.set(
+            egui::ColorImage::from_rgb([frame_data.width, frame_data.height], &frame_data.data),
+            egui::TextureOptions::default(),
+        );
+    }
 
-            if let Some(texture) = &mut self.video_texture {
-                texture.set(color_image, TextureOptions::LINEAR);
-            } else {
-                self.video_texture =
-                    Some(ctx.load_texture("video_feed", color_image, TextureOptions::LINEAR));
+    // Update drone orientation from telemetry
+    if let Ok(buffer) = state.data_buffer.lock() {
+        if let Some(latest) = buffer.data.back() {
+            for mut orientation in drone_query.iter_mut() {
+                orientation.roll = latest.roll;
+                orientation.pitch = latest.pitch;
+                orientation.yaw = latest.yaw;
             }
         }
+    }
 
-        ctx.request_repaint();
+    let ctx = contexts.ctx_mut();
+    ctx.request_repaint();
 
-        egui::TopBottomPanel::top("controls").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Serial Port:");
-                ui.text_edit_singleline(&mut self.port_path);
-
-                if ui
-                    .button(if self.serial_connected {
-                        "Connected"
-                    } else {
-                        "Connect"
-                    })
-                    .clicked()
-                    && !self.serial_connected
-                {
-                    self.start_uart_thread();
-                }
-
-                ui.separator();
-
-                ui.label("Video Device:");
-                ui.text_edit_singleline(&mut self.video_device_path);
-
-                if ui
-                    .button(if self.video_connected {
-                        "Video Connected"
-                    } else {
-                        "Connect Video"
-                    })
-                    .clicked()
-                    && !self.video_connected
-                {
-                    self.start_video_thread();
-                }
-
-                ui.separator();
-
-                if ui.button("Clear Data").clicked()
-                    && let Ok(mut buffer) = self.data_buffer.lock()
-                {
-                    buffer.data.clear();
-                }
-
-                if ui.button("Clear Logs").clicked()
-                    && let Ok(mut buffer) = self.data_buffer.lock()
-                {
-                    buffer.logs.clear();
-                }
-
-                ui.separator();
-
-                ui.checkbox(&mut self.auto_scroll_logs, "Auto-scroll logs");
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Send Data:");
-                ui.label("Address:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.send_address)
-                        .desired_width(60.0)
-                        .hint_text("0-65535"),
-                );
-                ui.label("Data:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.send_data)
-                        .desired_width(200.0)
-                        .hint_text("Max 240 bytes"),
-                );
-                if ui
-                    .button("Send")
-                    .on_hover_text("Send data via AT+SEND command")
-                    .clicked()
-                    && self.serial_connected
-                {
-                    self.send_data();
-                }
-            });
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
+    // Top Panel - Connection controls
+    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        ui.horizontal(|ui| {
             ui.heading("Drone Telemetry Monitor");
+            ui.separator();
 
-            let buffer = self.data_buffer.lock().unwrap();
-
-            ui.horizontal(|ui| {
-                // Video Feed Display
-                if let Some(texture) = &self.video_texture {
-                    ui.group(|ui| {
-                        ui.label("Video Feed");
-                        ui.image(texture);
-                    });
+            // Serial connection
+            ui.label("Serial Port:");
+            ui.text_edit_singleline(&mut state.port_path);
+            if ui
+                .button(if state.serial_connected {
+                    "Connected ✓"
+                } else {
+                    "Connect"
+                })
+                .clicked()
+            {
+                if !state.serial_connected {
+                    state.start_uart_thread();
                 }
-
-                ui.vertical(|ui| {
-                    // Log Section
-                    ui.group(|ui| {
-                        ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
-
-                        egui::ScrollArea::vertical()
-                            .max_height(200.0)
-                            .auto_shrink([false; 2])
-                            .stick_to_bottom(self.auto_scroll_logs)
-                            .show(ui, |ui| {
-                                for log in buffer.logs.iter() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!(
-                                            "[{}]",
-                                            log.clock_time.format("%H:%M:%S%.3f")
-                                        ));
-                                        ui.label(&log.message);
-                                    });
-                                }
-                            });
-                    });
-                });
-            });
-
-            // Attitude Plot
-            ui.group(|ui| {
-                ui.label("Attitude (Roll, Pitch, Yaw)");
-                Plot::new("attitude_plot")
-                    .legend(Legend::default())
-                    .height(200.0)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(
-                            Line::new("Roll", buffer.get_roll_data()).color(egui::Color32::RED),
-                        );
-                        plot_ui.line(
-                            Line::new("Pitch", buffer.get_pitch_data()).color(egui::Color32::GREEN),
-                        );
-                        plot_ui.line(
-                            Line::new("Yaw", buffer.get_yaw_data()).color(egui::Color32::BLUE),
-                        );
-                    });
-            });
-
-            ui.add_space(10.0);
-
-            // PID Selection and Plot
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    ui.label("PID Axis:");
-                    ui.selectable_value(&mut self.selected_pid_axis, PidAxis::Roll, "Roll");
-                    ui.selectable_value(&mut self.selected_pid_axis, PidAxis::Pitch, "Pitch");
-                    ui.selectable_value(&mut self.selected_pid_axis, PidAxis::Yaw, "Yaw");
-                });
-
-                let axis_name = match self.selected_pid_axis {
-                    PidAxis::Roll => "Roll",
-                    PidAxis::Pitch => "Pitch",
-                    PidAxis::Yaw => "Yaw",
-                };
-
-                ui.label(format!("{axis_name} PID Values (P, I, D)"));
-
-                Plot::new("pid_plot")
-                    .legend(Legend::default())
-                    .height(200.0)
-                    .show(ui, |plot_ui| {
-                        plot_ui.line(
-                            Line::new("P", buffer.get_pid_p_data(self.selected_pid_axis))
-                                .color(egui::Color32::from_rgb(255, 100, 100)),
-                        );
-                        plot_ui.line(
-                            Line::new("I", buffer.get_pid_i_data(self.selected_pid_axis))
-                                .color(egui::Color32::from_rgb(100, 255, 100)),
-                        );
-                        plot_ui.line(
-                            Line::new("D", buffer.get_pid_d_data(self.selected_pid_axis))
-                                .color(egui::Color32::from_rgb(100, 100, 255)),
-                        );
-                    });
-            });
-
-            ui.add_space(10.0);
-
-            // Display current values
-            if let Some(latest) = buffer.data.back() {
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Current Values");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(format!(
-                                "Last Update: {}",
-                                latest.clock_time.format("%H:%M:%S%.3f")
-                            ));
-                        });
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label(format!("Roll: {:.2}°", latest.roll));
-                        ui.label(format!("Pitch: {:.2}°", latest.pitch));
-                        ui.label(format!("Yaw: {:.2}°", latest.yaw));
-                    });
-
-                    ui.separator();
-
-                    ui.label("Roll PID:");
-                    ui.horizontal(|ui| {
-                        ui.label(format!("P: {:.3}", latest.roll_p));
-                        ui.label(format!("I: {:.3}", latest.roll_i));
-                        ui.label(format!("D: {:.3}", latest.roll_d));
-                    });
-
-                    ui.label("Pitch PID:");
-                    ui.horizontal(|ui| {
-                        ui.label(format!("P: {:.3}", latest.pitch_p));
-                        ui.label(format!("I: {:.3}", latest.pitch_i));
-                        ui.label(format!("D: {:.3}", latest.pitch_d));
-                    });
-
-                    ui.label("Yaw PID:");
-                    ui.horizontal(|ui| {
-                        ui.label(format!("P: {:.3}", latest.yaw_p));
-                        ui.label(format!("I: {:.3}", latest.yaw_i));
-                        ui.label(format!("D: {:.3}", latest.yaw_d));
-                    });
-
-                    ui.separator();
-
-                    ui.horizontal(|ui| {
-                        ui.label(format!("Altitude: {:.2}m", latest.altitude));
-                        ui.label(format!("Battery: {:.2}V", latest.battery_voltage));
-                    });
-                });
             }
 
-            ui.add_space(10.0);
+            ui.separator();
+
+            // Video connection
+            ui.label("Video Device:");
+            ui.text_edit_singleline(&mut state.video_device_path);
+            if ui
+                .button(if state.video_connected {
+                    "Connected ✓"
+                } else {
+                    "Connect"
+                })
+                .clicked()
+            {
+                if !state.video_connected {
+                    state.start_video_thread();
+                }
+            }
+
+            ui.separator();
+
+            // Send data
+            ui.label("Address:");
+            ui.add(egui::TextEdit::singleline(&mut state.send_address).desired_width(40.0));
+            ui.label("Data:");
+            ui.text_edit_singleline(&mut state.send_data);
+            if ui.button("Send").clicked() {
+                state.send_data();
+            }
+
+            ui.separator();
+            ui.checkbox(&mut state.auto_scroll_logs, "Auto-scroll logs");
         });
-    }
+    });
+
+    // Central Panel - Main content
+    egui::CentralPanel::default().show(ctx, |ui| {
+        // Extract values we need from state before locking buffer
+        let auto_scroll = state.auto_scroll_logs;
+
+        // Video feed and logs
+        ui.horizontal(|ui| {
+            // Video feed
+            ui.group(|ui| {
+                ui.label("Video Feed");
+                if let Some(texture) = &state.video_texture {
+                    ui.image((texture.id(), egui::vec2(320.0, 240.0)));
+                } else {
+                    ui.allocate_space(egui::vec2(320.0, 240.0));
+                    ui.label("No video feed");
+                }
+            });
+
+            ui.separator();
+
+            // System logs
+            ui.group(|ui| {
+                let buffer = state.data_buffer.lock().unwrap();
+                ui.label(format!("System Logs ({} messages)", buffer.logs.len()));
+
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .auto_shrink([false; 2])
+                    .stick_to_bottom(auto_scroll)
+                    .show(ui, |ui| {
+                        for log in buffer.logs.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("[{}]", log.clock_time.format("%H:%M:%S%.3f")));
+                                ui.label(&log.message);
+                            });
+                        }
+                    });
+            });
+        });
+
+        ui.add_space(10.0);
+
+        // Attitude Plot - Graph only (3D view is in the separate Bevy 3D scene)
+        ui.group(|ui| {
+            ui.label("Attitude (Roll, Pitch, Yaw)");
+            let buffer = state.data_buffer.lock().unwrap();
+            Plot::new("attitude_plot")
+                .legend(Legend::default())
+                .height(300.0)
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(buffer.get_roll_data())
+                            .name("Roll")
+                            .color(Color32::from_rgb(255, 0, 0)),
+                    );
+                    plot_ui.line(
+                        Line::new(buffer.get_pitch_data())
+                            .name("Pitch")
+                            .color(Color32::from_rgb(0, 255, 0)),
+                    );
+                    plot_ui.line(
+                        Line::new(buffer.get_yaw_data())
+                            .name("Yaw")
+                            .color(Color32::from_rgb(0, 0, 255)),
+                    );
+                });
+        });
+
+        ui.add_space(10.0);
+
+        // PID Selection and Plot
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label("PID Axis:");
+                ui.selectable_value(&mut state.selected_pid_axis, PidAxis::Roll, "Roll");
+                ui.selectable_value(&mut state.selected_pid_axis, PidAxis::Pitch, "Pitch");
+                ui.selectable_value(&mut state.selected_pid_axis, PidAxis::Yaw, "Yaw");
+            });
+
+            let selected_axis = state.selected_pid_axis;
+            let axis_name = match selected_axis {
+                PidAxis::Roll => "Roll",
+                PidAxis::Pitch => "Pitch",
+                PidAxis::Yaw => "Yaw",
+            };
+
+            ui.label(format!("{axis_name} PID Values (P, I, D)"));
+
+            let buffer = state.data_buffer.lock().unwrap();
+
+            Plot::new("pid_plot")
+                .legend(Legend::default())
+                .height(200.0)
+                .show(ui, |plot_ui| {
+                    plot_ui.line(
+                        Line::new(buffer.get_pid_p_data(selected_axis))
+                            .name("P")
+                            .color(Color32::from_rgb(255, 100, 100)),
+                    );
+                    plot_ui.line(
+                        Line::new(buffer.get_pid_i_data(selected_axis))
+                            .name("I")
+                            .color(Color32::from_rgb(100, 255, 100)),
+                    );
+                    plot_ui.line(
+                        Line::new(buffer.get_pid_d_data(selected_axis))
+                            .name("D")
+                            .color(Color32::from_rgb(100, 100, 255)),
+                    );
+                });
+        });
+
+        ui.add_space(10.0);
+
+        // Current values display
+        ui.group(|ui| {
+            ui.label("Current Values");
+            let buffer = state.data_buffer.lock().unwrap();
+            if let Some(latest) = buffer.data.back() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Roll: {:.2}°", latest.roll));
+                    ui.separator();
+                    ui.label(format!("Pitch: {:.2}°", latest.pitch));
+                    ui.separator();
+                    ui.label(format!("Yaw: {:.2}°", latest.yaw));
+                    ui.separator();
+                    ui.label(format!("Alt: {:.2}m", latest.altitude));
+                    ui.separator();
+                    ui.label(format!("Battery: {:.2}V", latest.battery_voltage));
+                });
+            } else {
+                ui.label("No data received yet");
+            }
+        });
+    });
 }

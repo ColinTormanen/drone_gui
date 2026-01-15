@@ -2,6 +2,7 @@ use ffmpeg_the_third as ffmpeg;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[derive(Clone)]
 pub struct VideoFrame {
     pub data: Vec<u8>,
     pub width: usize,
@@ -102,38 +103,38 @@ fn video_capture_loop(
     for result in ictx.packets() {
         if let Ok((stream, packet)) = result {
             if stream.index() == stream_index {
-            // Try to send packet, but skip if it fails (corrupted data)
-            if let Err(e) = decoder.send_packet(&packet) {
-                eprintln!(
-                    "Warning: Failed to send packet (frame {}): {}",
-                    frame_count, e
-                );
-                continue;
-            }
-
-            let mut decoded = ffmpeg::util::frame::video::Video::empty();
-            while decoder.receive_frame(&mut decoded).is_ok() {
-                let mut rgb_frame = ffmpeg::util::frame::video::Video::empty();
-                if let Err(e) = scaler.run(&decoded, &mut rgb_frame) {
-                    eprintln!("Warning: Failed to scale frame {}: {}", frame_count, e);
+                // Try to send packet, but skip if it fails (corrupted data)
+                if let Err(e) = decoder.send_packet(&packet) {
+                    eprintln!(
+                        "Warning: Failed to send packet (frame {}): {}",
+                        frame_count, e
+                    );
                     continue;
                 }
 
-                // Copy frame data
-                let data = rgb_frame.data(0).to_vec();
+                let mut decoded = ffmpeg::util::frame::video::Video::empty();
+                while decoder.receive_frame(&mut decoded).is_ok() {
+                    let mut rgb_frame = ffmpeg::util::frame::video::Video::empty();
+                    if let Err(e) = scaler.run(&decoded, &mut rgb_frame) {
+                        eprintln!("Warning: Failed to scale frame {}: {}", frame_count, e);
+                        continue;
+                    }
 
-                // Update shared buffer
-                if let Ok(mut buffer) = frame_buffer.lock() {
-                    *buffer = Some(VideoFrame {
-                        data,
-                        width,
-                        height,
-                    });
+                    // Copy frame data
+                    let data = rgb_frame.data(0).to_vec();
+
+                    // Update shared buffer
+                    if let Ok(mut buffer) = frame_buffer.lock() {
+                        *buffer = Some(VideoFrame {
+                            data,
+                            width,
+                            height,
+                        });
+                    }
+
+                    frame_count += 1;
                 }
-
-                frame_count += 1;
             }
-        }
         }
     }
 

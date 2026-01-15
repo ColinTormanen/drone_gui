@@ -4,15 +4,27 @@ mod parser;
 mod telemetry;
 mod uart;
 mod video;
+mod drone_scene;
 
-use app::MyEguiApp;
+use bevy::prelude::*;
+use bevy_egui::EguiPlugin;
 
 fn main() {
-    let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Drone Telemetry",
-        native_options,
-        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc)))),
-    )
-    .expect("failed to run eframe");
+    App::new()
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Drone Telemetry Monitor".to_string(),
+                    ..default()
+                }),
+                ..default()
+            }),
+            EguiPlugin,
+        ))
+        .add_systems(Startup, drone_scene::setup_drone_scene)
+        .add_systems(Update, drone_scene::update_drone_orientation)
+        .add_systems(Update, app::ui_system)
+        .insert_resource(app::AppState::default())
+        .insert_non_send_resource(app::GamepadState::default())
+        .run();
 }

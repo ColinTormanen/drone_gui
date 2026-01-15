@@ -92,28 +92,28 @@ impl DataBuffer {
         self.logs.push_back(log_msg);
     }
 
-    pub fn get_roll_data<'a>(&'a self) -> PlotPoints<'a> {
+    pub fn get_roll_data(&self) -> PlotPoints {
         self.data
             .iter()
             .map(|d| [d.timestamp, d.roll as f64])
             .collect()
     }
 
-    pub fn get_pitch_data<'a>(&'a self) -> PlotPoints<'a> {
+    pub fn get_pitch_data(&self) -> PlotPoints {
         self.data
             .iter()
             .map(|d| [d.timestamp, d.pitch as f64])
             .collect()
     }
 
-    pub fn get_yaw_data<'a>(&'a self) -> PlotPoints<'a> {
+    pub fn get_yaw_data(&self) -> PlotPoints {
         self.data
             .iter()
             .map(|d| [d.timestamp, d.yaw as f64])
             .collect()
     }
 
-    pub fn get_pid_p_data<'a>(&'a self, axis: PidAxis) -> PlotPoints<'a> {
+    pub fn get_pid_p_data<'a>(&'a self, axis: PidAxis) -> PlotPoints {
         self.data
             .iter()
             .map(|d| {
@@ -127,7 +127,7 @@ impl DataBuffer {
             .collect()
     }
 
-    pub fn get_pid_i_data<'a>(&'a self, axis: PidAxis) -> PlotPoints<'a> {
+    pub fn get_pid_i_data<'a>(&'a self, axis: PidAxis) -> PlotPoints {
         self.data
             .iter()
             .map(|d| {
@@ -141,7 +141,7 @@ impl DataBuffer {
             .collect()
     }
 
-    pub fn get_pid_d_data<'a>(&'a self, axis: PidAxis) -> PlotPoints<'a> {
+    pub fn get_pid_d_data<'a>(&'a self, axis: PidAxis) -> PlotPoints {
         self.data
             .iter()
             .map(|d| {

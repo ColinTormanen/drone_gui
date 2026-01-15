@@ -5,8 +5,16 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.42"
-eframe = "0.33.0"
-egui_plot = "0.34.0"
+bevy = { version = "0.15", default-features = false, features = [
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_ui",
+    "x11",
+] }
+bevy_egui = "0.31"
+egui_plot = "0.29"
 gilrs = "0.11.0"
 serialport = "4.8.1"
 ffmpeg-the-third = "4.0.1"
