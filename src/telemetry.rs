@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use chrono::{DateTime, Local};
 use egui_plot::PlotPoints;
 use std::collections::VecDeque;
@@ -31,9 +32,28 @@ pub struct TelemetryData {
     pub yaw_p: f32,
     pub yaw_i: f32,
     pub yaw_d: f32,
-    // Other telemetry
-    pub altitude: f32,
-    pub battery_voltage: f32,
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct TelemetryPacket {
+    timestamp_ms: u32,
+
+    roll: f32,
+    pitch: f32,
+    yaw: f32,
+
+    roll_p_term: f32,
+    roll_i_term: f32,
+    roll_d_term: f32,
+
+    pitch_p_term: f32,
+    pitch_i_term: f32,
+    pitch_d_term: f32,
+
+    yaw_p_term: f32,
+    yaw_i_term: f32,
+    yaw_d_term: f32,
 }
 
 #[derive(Clone, Debug)]

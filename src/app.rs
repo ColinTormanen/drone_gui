@@ -435,16 +435,6 @@ pub fn ui_system(
                                                         });
                                                 });
                                             });
-
-                                            ui.add_space(4.0);
-                                            ui.horizontal_wrapped(|ui| {
-                                                ui.label(format!("Alt: {:.2}m", latest.altitude));
-                                                ui.separator();
-                                                ui.label(format!(
-                                                    "Battery: {:.2}V",
-                                                    latest.battery_voltage
-                                                ));
-                                            });
                                         } else {
                                             ui.label("No data received yet");
                                         }
