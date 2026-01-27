@@ -341,7 +341,6 @@ pub fn ui_system(
                                     .show(ui, |ui| {
                                         let buffer = state.data_buffer.lock().unwrap();
                                         if let Some(latest) = buffer.data.back() {
-                                            let box_width = 120.0; // Fixed width for all attitude boxes
                                             ui.vertical(|ui| {
                                                 // Roll with red background
                                                 ui.scope(|ui| {
@@ -553,7 +552,7 @@ pub fn ui_system(
                         Plot::new("attitude_plot")
                             .legend(Legend::default())
                             .height(300.0)
-                            .width(available_width - 20.0)
+                            .width(available_width)
                             .show(ui, |plot_ui| {
                                 plot_ui.line(
                                     Line::new(buffer.get_roll_data())

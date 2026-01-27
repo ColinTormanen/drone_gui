@@ -143,21 +143,21 @@ impl DataBuffer {
     pub fn get_roll_data(&self) -> PlotPoints {
         self.data
             .iter()
-            .map(|d| [d.timestamp as f64, d.roll as f64])
+            .map(|d| [d.timestamp as f64 / 1000.0, d.roll as f64])
             .collect()
     }
 
     pub fn get_pitch_data(&self) -> PlotPoints {
         self.data
             .iter()
-            .map(|d| [d.timestamp as f64, d.pitch as f64])
+            .map(|d| [d.timestamp as f64 / 1000.0, d.pitch as f64])
             .collect()
     }
 
     pub fn get_yaw_data(&self) -> PlotPoints {
         self.data
             .iter()
-            .map(|d| [d.timestamp as f64, d.yaw as f64])
+            .map(|d| [d.timestamp as f64 / 1000.0, d.yaw as f64])
             .collect()
     }
 
@@ -170,7 +170,7 @@ impl DataBuffer {
                     PidAxis::Pitch => d.pitch_p,
                     PidAxis::Yaw => d.yaw_p,
                 };
-                [d.timestamp as f64, val as f64]
+                [d.timestamp as f64 / 1000.0, val as f64]
             })
             .collect()
     }
@@ -184,7 +184,7 @@ impl DataBuffer {
                     PidAxis::Pitch => d.pitch_i,
                     PidAxis::Yaw => d.yaw_i,
                 };
-                [d.timestamp as f64, val as f64]
+                [d.timestamp as f64 / 1000.0, val as f64]
             })
             .collect()
     }
@@ -198,7 +198,7 @@ impl DataBuffer {
                     PidAxis::Pitch => d.pitch_d,
                     PidAxis::Yaw => d.yaw_d,
                 };
-                [d.timestamp as f64, val as f64]
+                [d.timestamp as f64 / 1000.0, val as f64]
             })
             .collect()
     }
