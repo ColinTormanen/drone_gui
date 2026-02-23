@@ -81,6 +81,7 @@ pub struct ControllerState {
     pub pitch: f32,
     pub yaw: f32,
     pub throttle: f32,
+    pub base_throttle: f32,
     pub master_motor_throttle: f32,
     pub motor_13_throttle: f32,
     pub motor_24_throttle: f32,
@@ -94,6 +95,7 @@ impl Default for ControllerState {
             pitch: 0.0,
             yaw: 0.0,
             throttle: 0.0,
+            base_throttle: 0.0,
             master_motor_throttle: 0.0,
             motor_13_throttle: 0.0,
             motor_24_throttle: 0.0,
@@ -111,6 +113,7 @@ impl ControllerState {
             pitch: 0.0,
             yaw: 0.0,
             throttle: 0.0,
+            base_throttle: 0.0,
             master_motor_throttle: throttles[0], // Use motor 1 as master default
             motor_13_throttle: throttles[0],
             motor_24_throttle: throttles[1],

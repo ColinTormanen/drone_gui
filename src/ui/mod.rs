@@ -1,11 +1,11 @@
 pub mod panels;
 pub mod windows;
 
-use bevy::prelude::*;
-use bevy_egui::{EguiContexts, egui};
 use crate::app::{AppState, CommandQueue, ControllerState};
 use crate::drone_scene::{Drone, DroneOrientation, ViewportImage};
 use crate::persistence::PersistentSettings;
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, egui};
 
 /// Main UI system that renders all the egui panels
 pub fn ui_system(
@@ -21,7 +21,10 @@ pub fn ui_system(
     if state.viewport_texture_id.is_none() {
         let egui_texture_id = contexts.add_image(viewport_image.handle.clone());
         state.viewport_texture_id = Some(egui_texture_id);
-        println!("Registered viewport texture with egui: {:?}", egui_texture_id);
+        println!(
+            "Registered viewport texture with egui: {:?}",
+            egui_texture_id
+        );
     }
 
     // Update video texture if new frame is available
@@ -37,7 +40,13 @@ pub fn ui_system(
     render_top_panel(ctx, &mut state, &command_queue, &persistent_settings);
 
     // Central Panel - Main content
-    render_central_panel(ctx, &mut state, &mut control, &command_queue, &mut persistent_settings);
+    render_central_panel(
+        ctx,
+        &mut state,
+        &mut control,
+        &command_queue,
+        &mut persistent_settings,
+    );
 
     // PID Tuning Window
     windows::render_pid_tuning_window(ctx, &mut state, &command_queue, &mut persistent_settings);

@@ -1,8 +1,8 @@
+use crate::app::AppState;
+use crate::telemetry::PidAxis;
 use bevy_egui::egui;
 use egui::Color32;
 use egui_plot::{Legend, Line, Plot};
-use crate::app::AppState;
-use crate::telemetry::PidAxis;
 
 /// Renders the attitude plot (Roll, Pitch, Yaw)
 pub fn render_attitude_plot(ui: &mut egui::Ui, state: &AppState) {

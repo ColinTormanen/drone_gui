@@ -1,13 +1,9 @@
+use crate::app::AppState;
 use bevy_egui::egui;
 use egui::Color32;
-use crate::app::AppState;
 
 /// Renders the 3D viewport section with orientation display
-pub fn render_viewport_section(
-    ui: &mut egui::Ui,
-    state: &AppState,
-    width: f32,
-) {
+pub fn render_viewport_section(ui: &mut egui::Ui, state: &AppState, width: f32) {
     ui.vertical(|ui| {
         ui.label("3D Drone View");
         ui.set_width(width);
@@ -83,6 +79,8 @@ pub fn render_viewport_section(
                                     );
                                 });
                         });
+
+                        ui.add_space(4.0);
                     });
                 } else {
                     ui.label("No data received yet");

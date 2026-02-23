@@ -1,7 +1,7 @@
-use bevy_egui::egui::{self, Slider, DragValue};
 use crate::app::{AppState, CommandQueue, ControllerState};
 use crate::persistence::PersistentSettings;
 use crate::protocol;
+use bevy_egui::egui::{self, DragValue, Slider};
 
 /// Renders the flight controller commands section
 pub fn render_commands_section(
@@ -127,7 +127,11 @@ fn render_throttle_controls(
         ui.label("Master");
         let mut master_clone = control.master_motor_throttle;
         let master_changed = ui
-            .add(DragValue::new(&mut master_clone).range(0.0..=1.0).speed(0.01))
+            .add(
+                DragValue::new(&mut master_clone)
+                    .range(0.0..=1.0)
+                    .speed(0.01),
+            )
             .changed();
         if master_changed {
             control.master_motor_throttle = master_clone;
@@ -142,7 +146,11 @@ fn render_throttle_controls(
         ui.label("Motors 1 & 3");
         let mut motor_13_clone = control.motor_13_throttle;
         if ui
-            .add(DragValue::new(&mut motor_13_clone).range(0.0..=1.0).speed(0.01))
+            .add(
+                DragValue::new(&mut motor_13_clone)
+                    .range(0.0..=1.0)
+                    .speed(0.01),
+            )
             .changed()
         {
             control.motor_13_throttle = motor_13_clone;
@@ -158,7 +166,11 @@ fn render_throttle_controls(
         ui.label("Motors 2 & 4");
         let mut motor_24_clone = control.motor_24_throttle;
         if ui
-            .add(DragValue::new(&mut motor_24_clone).range(0.0..=1.0).speed(0.01))
+            .add(
+                DragValue::new(&mut motor_24_clone)
+                    .range(0.0..=1.0)
+                    .speed(0.01),
+            )
             .changed()
         {
             control.motor_24_throttle = motor_24_clone;
@@ -170,12 +182,99 @@ fn render_throttle_controls(
     });
 
     // Individual motor controls
-    render_individual_motor_control(ui, control, 0, "Motor 1", address, command_queue, persistent_settings);
-    render_individual_motor_control(ui, control, 1, "Motor 2", address, command_queue, persistent_settings);
-    render_individual_motor_control(ui, control, 2, "Motor 3", address, command_queue, persistent_settings);
-    render_individual_motor_control(ui, control, 3, "Motor 4", address, command_queue, persistent_settings);
+    render_individual_motor_control(
+        ui,
+        control,
+        0,
+        "Motor 1",
+        address,
+        command_queue,
+        persistent_settings,
+    );
+    render_individual_motor_control(
+        ui,
+        control,
+        1,
+        "Motor 2",
+        address,
+        command_queue,
+        persistent_settings,
+    );
+    render_individual_motor_control(
+        ui,
+        control,
+        2,
+        "Motor 3",
+        address,
+        command_queue,
+        persistent_settings,
+    );
+    render_individual_motor_control(
+        ui,
+        control,
+        3,
+        "Motor 4",
+        address,
+        command_queue,
+        persistent_settings,
+    );
 
+    ui.separator();
     ui.label("Set Point");
+
+    // Roll setpoint bias
+    ui.horizontal(|ui| {
+        ui.label("Roll");
+        let mut roll_bias = persistent_settings.setpoint_bias.roll;
+        if ui
+            .add(
+                DragValue::new(&mut roll_bias)
+                    .range(-180.0..=180.0)
+                    .speed(0.1)
+                    .suffix("°"),
+            )
+            .changed()
+        {
+            persistent_settings.setpoint_bias.roll = roll_bias;
+            send_setpoint(command_queue, address, &persistent_settings.setpoint_bias);
+        }
+    });
+
+    // Pitch setpoint bias
+    ui.horizontal(|ui| {
+        ui.label("Pitch");
+        let mut pitch_bias = persistent_settings.setpoint_bias.pitch;
+        if ui
+            .add(
+                DragValue::new(&mut pitch_bias)
+                    .range(-180.0..=180.0)
+                    .speed(0.1)
+                    .suffix("°"),
+            )
+            .changed()
+        {
+            persistent_settings.setpoint_bias.pitch = pitch_bias;
+            send_setpoint(command_queue, address, &persistent_settings.setpoint_bias);
+        }
+    });
+
+    // Yaw setpoint bias
+    ui.horizontal(|ui| {
+        ui.label("Yaw");
+        let mut yaw_bias = persistent_settings.setpoint_bias.yaw;
+        if ui
+            .add(
+                DragValue::new(&mut yaw_bias)
+                    .range(-180.0..=180.0)
+                    .speed(0.1)
+                    .suffix("°"),
+            )
+            .changed()
+        {
+            persistent_settings.setpoint_bias.yaw = yaw_bias;
+            send_setpoint(command_queue, address, &persistent_settings.setpoint_bias);
+        }
+    });
 }
 
 /// Renders a single motor control value box
@@ -192,7 +291,11 @@ fn render_individual_motor_control(
         ui.label(label);
         let mut motor_clone = control.motor_throttles[motor_index];
         if ui
-            .add(DragValue::new(&mut motor_clone).range(0.0..=1.0).speed(0.01))
+            .add(
+                DragValue::new(&mut motor_clone)
+                    .range(0.0..=1.0)
+                    .speed(0.01),
+            )
             .changed()
         {
             control.motor_throttles[motor_index] = motor_clone;
@@ -206,5 +309,24 @@ fn render_individual_motor_control(
 fn send_motor_throttle(command_queue: &CommandQueue, address: u16, throttles: [f32; 4]) {
     if let Err(e) = protocol::send_command_set_motor_throttle(command_queue, address, throttles) {
         eprintln!("Failed to send motor throttle: {}", e);
+    }
+}
+
+/// Helper function to send setpoint command
+fn send_setpoint(
+    command_queue: &CommandQueue,
+    address: u16,
+    setpoint_bias: &crate::persistence::SetpointBias,
+) {
+    if let Err(e) = protocol::send_command_set_point(
+        command_queue,
+        address,
+        protocol::Attitude {
+            roll: setpoint_bias.roll,
+            pitch: setpoint_bias.pitch,
+            yaw: setpoint_bias.yaw,
+        },
+    ) {
+        eprintln!("Failed to send setpoint: {}", e);
     }
 }

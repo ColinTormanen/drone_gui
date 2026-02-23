@@ -45,11 +45,32 @@ impl Default for MotorBias {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetpointBias {
+    pub roll: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+}
+
+impl Default for SetpointBias {
+    fn default() -> Self {
+        Self {
+            roll: 0.0,
+            pitch: 0.0,
+            yaw: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Resource)]
 pub struct PersistentSettings {
     // Motor bias values
     #[serde(default)]
     pub motor_bias: MotorBias,
+
+    // Setpoint bias values
+    #[serde(default)]
+    pub setpoint_bias: SetpointBias,
 
     // PID parameters for each axis
     #[serde(default)]
@@ -80,6 +101,7 @@ impl Default for PersistentSettings {
     fn default() -> Self {
         Self {
             motor_bias: MotorBias::default(),
+            setpoint_bias: SetpointBias::default(),
             pid_roll: PidParameters::default(),
             pid_pitch: PidParameters::default(),
             pid_yaw: PidParameters::default(),
