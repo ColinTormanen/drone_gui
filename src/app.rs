@@ -1,3 +1,4 @@
+use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use std::collections::VecDeque;
@@ -150,6 +151,12 @@ impl AppState {
         }
     }
 
+    pub fn refresh_ports(&mut self) {
+        self.available_ports = serialport::available_ports()
+            .map(|ports| ports.iter().map(|p| p.port_name.clone()).collect())
+            .unwrap_or_else(|_| vec![]);
+    }
+
     pub fn disconnect_uart(&mut self) {
         if let Some(sender) = &self.uart_sender {
             let _ = sender.send(UartCommand::Disconnect);
@@ -173,6 +180,16 @@ impl AppState {
                 eprintln!("Failed to start video capture: {}", e);
             }
         }
+    }
+}
+
+/// Sends Disconnect to the UART thread on app exit so the serial port is released cleanly.
+pub fn uart_shutdown_system(
+    mut state: ResMut<AppState>,
+    mut exit_events: EventReader<AppExit>,
+) {
+    if exit_events.read().next().is_some() {
+        state.disconnect_uart();
     }
 }
 

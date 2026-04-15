@@ -80,7 +80,7 @@ fn render_pid_parameters(ui: &mut egui::Ui, persistent_settings: &mut Persistent
         ui.add(
             egui::DragValue::new(&mut pid_params.p)
                 .speed(0.01)
-                .range(0.0..=20.0),
+                .range(-20.0..=20.0),
         );
     });
 
@@ -89,7 +89,7 @@ fn render_pid_parameters(ui: &mut egui::Ui, persistent_settings: &mut Persistent
         ui.add(
             egui::DragValue::new(&mut pid_params.i)
                 .speed(0.001)
-                .range(0.0..=2.0),
+                .range(-2.0..=2.0),
         );
     });
 
@@ -98,7 +98,7 @@ fn render_pid_parameters(ui: &mut egui::Ui, persistent_settings: &mut Persistent
         ui.add(
             egui::DragValue::new(&mut pid_params.d)
                 .speed(0.001)
-                .range(0.0..=2.0),
+                .range(-2.0..=2.0),
         );
     });
 }
@@ -136,11 +136,19 @@ fn render_send_controls(
         let connected = state.uart_sender.is_some();
         ui.add_enabled_ui(connected, |ui| {
             if ui.button("Send Tune").clicked() {
-                let config = persistent_settings.to_config_packet();
-                if let Err(e) = protocol::send_command_config(command_queue, config) {
-                    eprintln!("Failed to send config: {}", e);
+                let axis = persistent_settings.selected_tune_axis;
+                let params = persistent_settings.get_pid(axis);
+                let pid = protocol::PIDController {
+                    p: params.p,
+                    i: params.i,
+                    d: params.d,
+                    i_limit: params.i_limit,
+                    pid_limit: params.pid_limit,
+                };
+                if let Err(e) = protocol::send_command_tune_pid(command_queue, axis, pid) {
+                    eprintln!("Failed to send tune PID: {}", e);
                 } else if let Ok(mut buffer) = state.data_buffer.lock() {
-                    buffer.push_log("Config sent to drone".to_string());
+                    buffer.push_log(format!("PID tune sent for {:?}", axis));
                 }
             }
 

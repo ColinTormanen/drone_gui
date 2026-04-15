@@ -114,22 +114,25 @@ impl RxParser {
                 }
 
                 ParseState::FrameType => {
-                    self.state = ParseState::FrameLen(byte);
+                    if byte == BT_TELEM {
+                        self.state = ParseState::FrameLen(byte);
+                    } else {
+                        self.state = ParseState::Text;
+                    }
                 }
 
                 ParseState::FrameLen(pkt_type) => {
                     let pkt_type = *pkt_type;
                     let len = byte as usize;
-                    if len == 0 {
-                        self.state = ParseState::FrameCrc { pkt_type, payload: vec![] };
-                    } else if len > 240 {
-                        self.state = ParseState::Text; // oversized, discard
-                    } else {
+                    let expected_len = std::mem::size_of::<TelemetryPacket>();
+                    if len == expected_len {
                         self.state = ParseState::FramePayload {
                             pkt_type,
                             expected: len,
                             buf: Vec::with_capacity(len),
                         };
+                    } else {
+                        self.state = ParseState::Text; // wrong length, discard
                     }
                 }
 

@@ -12,7 +12,7 @@ pub fn render_connection_panel(
 
         // Serial connection
         ui.label("Serial Port:");
-        egui::ComboBox::from_id_salt("serial_port_select")
+        let combo_resp = egui::ComboBox::from_id_salt("serial_port_select")
             .selected_text(&state.port_path)
             .show_ui(ui, |ui| {
                 let available = state.available_ports.clone();
@@ -23,6 +23,12 @@ pub fn render_connection_panel(
                 ui.label("Or enter manually:");
                 ui.text_edit_singleline(&mut state.port_path);
             });
+        if combo_resp.response.clicked() {
+            state.refresh_ports();
+        }
+        if ui.button("⟳").on_hover_text("Refresh port list").clicked() {
+            state.refresh_ports();
+        }
 
         if state.serial_connected {
             if ui.button("Disconnect").clicked() {

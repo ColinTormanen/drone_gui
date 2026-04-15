@@ -37,6 +37,7 @@ fn main() {
         )
         .add_systems(Update, app::command_dispatch_system)
         .add_systems(Update, persistence::auto_save_system)
+        .add_systems(Last, app::uart_shutdown_system)
         .insert_resource(app::AppState::default())
         .insert_resource(app::CommandTimer::default())
         .insert_resource(app::CommandQueue::default())

@@ -6,16 +6,19 @@ use egui_plot::{Legend, Line, Plot};
 
 /// Renders the attitude plot (Roll, Pitch, Yaw)
 pub fn render_attitude_plot(ui: &mut egui::Ui, state: &AppState) {
+    let max_width = ui.ctx().screen_rect().width() - 32.0;
+    ui.set_max_width(max_width);
     ui.group(|ui| {
+        ui.set_max_width(max_width - 16.0);
         ui.label("Attitude (Roll, Pitch, Yaw)");
         let buffer = state.data_buffer.lock().unwrap();
-        let available_width = ui.available_width();
         let plot_height = (ui.ctx().screen_rect().height() * 0.25).min(300.0);
+        let plot_width = ui.available_width();
 
         Plot::new("attitude_plot")
             .legend(Legend::default())
             .height(plot_height)
-            .width(available_width)
+            .width(plot_width)
             .show(ui, |plot_ui| {
                 plot_ui.line(
                     Line::new(buffer.get_roll_data())
@@ -38,7 +41,10 @@ pub fn render_attitude_plot(ui: &mut egui::Ui, state: &AppState) {
 
 /// Renders the PID plot for the selected axis
 pub fn render_pid_plot(ui: &mut egui::Ui, state: &mut AppState) {
+    let max_width = ui.ctx().screen_rect().width() - 32.0;
+    ui.set_max_width(max_width);
     ui.group(|ui| {
+        ui.set_max_width(max_width - 16.0);
         ui.horizontal(|ui| {
             ui.label("PID Axis:");
             ui.selectable_value(&mut state.selected_pid_axis, PidAxis::Roll, "Roll");
@@ -56,13 +62,13 @@ pub fn render_pid_plot(ui: &mut egui::Ui, state: &mut AppState) {
         ui.label(format!("{axis_name} PID Values (P, I, D)"));
 
         let buffer = state.data_buffer.lock().unwrap();
-        let available_width = ui.available_width();
         let plot_height = (ui.ctx().screen_rect().height() * 0.20).min(200.0);
+        let plot_width = ui.available_width();
 
         Plot::new("pid_plot")
             .legend(Legend::default())
             .height(plot_height)
-            .width(available_width)
+            .width(plot_width)
             .show(ui, |plot_ui| {
                 plot_ui.line(
                     Line::new(buffer.get_pid_p_data(selected_axis))
